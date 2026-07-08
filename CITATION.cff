@@ -1,0 +1,17 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite this repository."
+title: "Gene Research / Sequence Workbench"
+type: software
+authors:
+  - family-names: "Suzuki"
+    given-names: "light"
+repository-code: "https://github.com/light-suzuki/Gene-research"
+license: MIT
+abstract: "A local-first Windows-friendly sequence workbench for user-supplied genomes, BLAST+, and Primer3."
+keywords:
+  - bioinformatics
+  - sequence-analysis
+  - BLAST
+  - Primer3
+  - local-first
+  - Windows
