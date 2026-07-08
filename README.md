@@ -1,5 +1,10 @@
 # Primer Workbench
 
+[![CI](https://github.com/light-suzuki/PrimerWorkbench/actions/workflows/ci.yml/badge.svg)](https://github.com/light-suzuki/PrimerWorkbench/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/light-suzuki/=semver)](https://github.com/light-suzuki/PrimerWorkbench/releases)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
+
 Primer3設計、ローカル特異性確認、既存プライマー逆引きに絞ったWindows GUI。 | A focused Windows GUI for Primer3 design, local specificity checks, and existing-primer lookup.
 
 This is a source-level focused distribution of
