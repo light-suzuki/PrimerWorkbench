@@ -1,0 +1,48 @@
+name: Bug report
+description: Report a reproducible problem
+title: "[Bug]: "
+labels: [bug]
+body:
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: What went wrong?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: List the exact steps, input files, commands, or UI actions.
+      placeholder: |
+        1. ...
+        2. ...
+        3. ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: OS, version, WSL distribution if used, browser, Python/Node/.NET version, and relevant tool versions.
+      placeholder: |
+        OS:
+        WSL:
+        Browser:
+        Python/Node/.NET:
+        BLAST+/Primer3/RStudio/PowerPoint version if relevant:
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs or screenshots
+      description: Paste logs, error text, screenshots, or minimal input examples. Remove private data first.
+      render: text
