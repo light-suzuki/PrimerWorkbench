@@ -60,7 +60,7 @@ def find_orfs(sequence: str, min_aa_length: int) -> List[Dict]:
     前方 3 フレームで ORF を検出する。
 
     - 開始コドン: ATG
-    - 終止コドン: TAA, TAG, TGA
+    - 終止コドン: TAA, TAG, TGA（必ず終止となる IUPAC の TAR, TRA も含む）
     - ORF 長が min_aa_length 以上のもののみを返す
 
     戻り値は、Pydantic モデルにそのまま渡せる dict のリスト。
@@ -75,7 +75,10 @@ def find_orfs(sequence: str, min_aa_length: int) -> List[Dict]:
         return []
 
     dna = Seq(seq)
-    stop_codons = {"TAA", "TAG", "TGA"}
+    # TAR expands to TAA/TAG and TRA to TAA/TGA. Both are certain stops
+    # under the standard code used by Seq.translate; do not scan past them.
+    # Mixed sense/stop codons (e.g. TGR) remain ambiguous candidate residues.
+    stop_codons = {"TAA", "TAG", "TGA", "TAR", "TRA"}
     results: List[Dict] = []
 
     for frame in range(3):
