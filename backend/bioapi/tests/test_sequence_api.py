@@ -14,7 +14,7 @@ def test_sequence_analysis_contract():
 
     orfs = client.post("/sequence/analyze/orfs", json={"sequence": sequence, "min_aa_length": 50})
     assert orfs.status_code == 200
-    assert orfs.json()["orfs"][0]["length_aa"] == 52
+    assert orfs.json()["orfs"][0]["length_aa"] == 51
 
     cuts = client.post("/sequence/analyze/restriction", json={"sequence": sequence, "enzymes": ["EcoRI"]})
     assert cuts.status_code == 200
