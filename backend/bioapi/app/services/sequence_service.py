@@ -89,7 +89,9 @@ def find_orfs(sequence: str, min_aa_length: int) -> List[Dict]:
                     stop_codon = seq[j : j + 3]
                     if stop_codon in stop_codons:
                         orf_nt_len = (j + 3) - i
-                        orf_aa_len = orf_nt_len // 3
+                        # The terminal stop is included in nucleotide coordinates,
+                        # but it does not encode an amino-acid residue.
+                        orf_aa_len = (j - i) // 3
                         if orf_aa_len >= min_aa_length:
                             sub_seq = dna[i : j + 3]
                             protein = sub_seq.translate(to_stop=True)
