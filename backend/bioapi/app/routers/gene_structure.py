@@ -11,9 +11,8 @@ from pathlib import Path
 from typing import Any
 
 import httpx
-from Bio.Seq import Seq
-from Bio.SeqIO.FastaIO import SimpleFastaParser
 from fastapi import APIRouter, HTTPException, Query
+from starlette.concurrency import run_in_threadpool
 
 from ..core.config import get_settings
 
@@ -66,120 +65,15 @@ def to_gene_structure(
     return gene_json.get("seq_region_name") or "", start, end, strand, exons, cds_ranges
 
 
-def load_local_sequence(fasta_path: Path, seqid: str) -> str:
-    """
-    FASTA (.fa or .fa.gz) から seqid の配列を読み出す（改行を除去して返す）。
-    """
-    if not fasta_path.exists():
-        raise HTTPException(status_code=500, detail=f"FASTA が見つかりません: {fasta_path}")
-
-    # SimpleFastaParser は file object を要求するため、gzip/通常の両方に対応する
-    opener = gzip.open if fasta_path.suffix.endswith("gz") else open
-    with opener(fasta_path, "rt") as fh:
-        for header, seq in SimpleFastaParser(fh):
-            header_id = header.split()[0]
-            if header_id == seqid:
-                return seq.strip()
-
-    raise HTTPException(status_code=404, detail=f"FASTA に {seqid} が見つかりませんでした。")
+from ..services.gene_service import ReferenceError, load_local_sequence
+from ..services.gene_service import local_structure_from_gff as _local_structure
 
 
-def parse_attrs(attr_str: str) -> dict[str, str]:
-    attrs: dict[str, str] = {}
-    for field in attr_str.split(";"):
-        if not field:
-            continue
-        if "=" in field:
-            k, v = field.split("=", 1)
-            attrs[k.strip()] = v.strip()
-    return attrs
-
-
-def local_structure_from_gff(
-    gene_id: str,
-    species: str | None,
-    gff_path: Path,
-    fasta_path: Path,
-) -> dict[str, Any]:
-    if not gff_path.exists():
-        raise HTTPException(status_code=500, detail=f"GFF3 が見つかりません: {gff_path}")
-
-    target = gene_id.split("-")[0].split(".")[0]
-    exons: list[dict[str, int]] = []
-    cds_list: list[dict[str, int]] = []
-    seqid: str | None = None
-    strand: int = 1
-    gene_start: int | None = None
-    gene_end: int | None = None
-
-    with _open_text_maybe_gzip(gff_path) as fh:
-        for line in fh:
-            if not line or line.startswith("#"):
-                continue
-            parts = line.rstrip("\n").split("\t")
-            if len(parts) < 9:
-                continue
-            seqid_line, _source, ftype, start_s, end_s, _score, strand_s, _phase, attrs_s = parts
-            if ftype not in {"gene", "mRNA", "transcript", "exon", "CDS"}:
-                continue
-            attrs = parse_attrs(attrs_s)
-            candidates = [
-                attrs.get("ID"),
-                attrs.get("Parent"),
-                attrs.get("gene_id"),
-                attrs.get("gene"),
-                attrs.get("Name"),
-            ]
-            if not any((c and target in c) for c in candidates):
-                continue
-
-            try:
-                start = int(start_s)
-                end = int(end_s)
-            except ValueError:
-                continue
-
-            seqid = seqid_line
-            strand = 1 if strand_s == "+" else -1
-            gene_start = start if gene_start is None else min(gene_start, start)
-            gene_end = end if gene_end is None else max(gene_end, end)
-            if ftype == "exon":
-                exons.append({"start": start, "end": end})
-            if ftype == "CDS":
-                cds_list.append({"start": start, "end": end})
-
-    if not exons and not cds_list:
-        raise HTTPException(status_code=404, detail=f"GFF3 に {gene_id} を含むエントリが見つかりませんでした。")
-    if seqid is None or gene_start is None or gene_end is None:
-        raise HTTPException(status_code=404, detail="GFF3 から座標を解釈できませんでした。")
-
-    # 配列取得
-    seq = load_local_sequence(fasta_path, seqid)
-    region_seq = seq[gene_start - 1 : gene_end]
-    if strand == -1:
-        region_seq = str(Seq(region_seq).reverse_complement())
-
-    length = len(region_seq)
-
-    def norm(r: dict[str, int]) -> dict[str, int]:
-        # gene start基準 1-based に直し、逆鎖なら反転
-        if strand == 1:
-            return {"start": r["start"] - gene_start + 1, "end": r["end"] - gene_start + 1}
-        new_start = length - (r["end"] - gene_start + 1) + 1
-        new_end = length - (r["start"] - gene_start + 1) + 1
-        return {"start": min(new_start, new_end), "end": max(new_start, new_end)}
-
-    return {
-        "seq_region_name": seqid,
-        "start": 1,
-        "end": length,
-        "strand": strand,
-        "length": length,
-        "sequence": region_seq,
-        "exons": [norm(r) for r in exons],
-        "cds": [norm(r) for r in cds_list],
-        "source": "local",
-    }
+def local_structure_from_gff(gene_id, species, gff_path, fasta_path):
+    try:
+        return _local_structure(gene_id, species, gff_path, fasta_path)
+    except ReferenceError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
 
 
 @router.get("/gene_structure/{gene_id}")
@@ -222,12 +116,11 @@ async def get_gene_structure(
     local_fa_raw = os.getenv("LOCAL_FASTA_PATH", "").strip()
     local_gff = Path(local_gff_raw).expanduser() if local_gff_raw else None
     local_fa = Path(local_fa_raw).expanduser() if local_fa_raw else None
-    if local_gff and local_fa and local_gff.exists() and local_fa.exists():
-        try:
-            return local_structure_from_gff(gene_id, species, local_gff, local_fa)
-        except HTTPException:
-            # ローカルで見つからない場合のみ Ensembl REST を試す
-            pass
+    if local_gff_raw or local_fa_raw:
+        if not local_gff or not local_fa or not local_gff.exists() or not local_fa.exists():
+            raise HTTPException(status_code=400, detail="Configure both existing local GFF3 and FASTA files.")
+        # A missing local gene is not permission to disclose its ID externally.
+        return await run_in_threadpool(local_structure_from_gff, gene_id, species, local_gff, local_fa)
 
     def candidate_ids(original: str) -> list[str]:
         cands = [original]

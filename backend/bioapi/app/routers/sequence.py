@@ -1,97 +1,40 @@
-"""
-シーケンス解析用の API ルーター。
-
-エンドポイント:
-- POST /sequence/analyze/basic
-- POST /sequence/analyze/orfs
-- POST /sequence/analyze/restriction
-"""
-
+"""HTTP adapters for the shared sequence application operations."""
 from fastapi import APIRouter, HTTPException
-
+from ..application import sequence_basic, sequence_orfs, sequence_restriction
 from ..models.schemas import (
-    OrfAnalysisRequest,
-    OrfAnalysisResponse,
-    RestrictionAnalysisRequest,
-    RestrictionAnalysisResponse,
-    RestrictionCutSite,
-    SequenceBasicAnalysisRequest,
-    SequenceBasicAnalysisResponse,
+    SequenceBasicAnalysisRequest, SequenceBasicAnalysisResponse,
+    OrfAnalysisRequest, OrfAnalysisResponse, RestrictionAnalysisRequest, RestrictionAnalysisResponse,
 )
-from ..services import sequence_service
-
+from ..services.enzyme_catalog import catalog
 
 router = APIRouter(prefix="/sequence", tags=["sequence"])
 
 
+@router.get("/enzymes")
+async def enzyme_catalog():
+    return catalog()
+
+
 @router.post("/analyze/basic", response_model=SequenceBasicAnalysisResponse)
-async def analyze_basic(request: SequenceBasicAnalysisRequest) -> SequenceBasicAnalysisResponse:
-    """
-    basic シーケンス解析エンドポイント。
-
-    - 長さ
-    - GC%
-    - オプションで 3 フレームの翻訳結果
-    """
+async def analyze_basic(request: SequenceBasicAnalysisRequest):
     try:
-        result_dict = sequence_service.analyze_basic(
-            sequence=request.sequence,
-            include_translation=request.include_translation,
-        )
+        return sequence_basic(request)
     except ValueError as exc:
-        # ユーザー入力に起因するエラーは 400 Bad Request として返す
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-
-    return SequenceBasicAnalysisResponse(**result_dict)
 
 
 @router.post("/analyze/orfs", response_model=OrfAnalysisResponse)
-async def analyze_orfs(request: OrfAnalysisRequest) -> OrfAnalysisResponse:
-    """
-    ORF 検出エンドポイント。
-
-    - 開始コドン ATG
-    - 終止コドン TAA/TAG/TGA
-    - min_aa_length 以上の ORF のみ返す
-    """
+async def analyze_orfs(request: OrfAnalysisRequest):
     try:
-        orfs = sequence_service.find_orfs(
-            sequence=request.sequence,
-            min_aa_length=request.min_aa_length,
-        )
+        return sequence_orfs(request)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    return OrfAnalysisResponse(orfs=orfs)
-
 
 @router.post("/analyze/restriction", response_model=RestrictionAnalysisResponse)
-async def analyze_restriction(
-    request: RestrictionAnalysisRequest,
-) -> RestrictionAnalysisResponse:
-    """
-    制限酵素サイト解析エンドポイント。
-
-    指定された酵素名ごとに、切断位置（1-based）一覧を返す。
-    """
-    if not request.enzymes:
-        raise HTTPException(
-            status_code=400,
-            detail="少なくとも 1 つ以上の制限酵素名を指定してください。",
-        )
-
-    result = sequence_service.analyze_restriction_sites(
-        sequence=request.sequence,
-        enzymes=request.enzymes,
-    )
-
-    cut_site_models = [
-        RestrictionCutSite(enzyme=name, cut_positions=positions)
-        for name, positions in result.items()
-    ]
-
-    return RestrictionAnalysisResponse(
-        sequence_length=len("".join(request.sequence.split())),
-        results=cut_site_models,
-    )
+async def analyze_restriction(request: RestrictionAnalysisRequest):
+    try:
+        return sequence_restriction(request)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 

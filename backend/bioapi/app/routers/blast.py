@@ -33,6 +33,7 @@ from ..models.schemas import (
     BlastRegionGeneModelResponse,
     JobCreateResponse,
 )
+from ..application import sequence_fetch, blast_local
 from ..services import blast_service
 from ..services import job_service
 
@@ -492,20 +493,7 @@ async def run_blast(request: BlastRequest) -> BlastResponse:
                     request.max_target_seqs,
                 )
             elif backend == "local":
-                raw_hits = await asyncio.to_thread(
-                    blast_service.run_blastn_sync,
-                    seq,
-                    request.db,
-                    request.task,
-                    request.evalue,
-                    request.max_target_seqs,
-                    request.num_threads,
-                    request.max_hsps,
-                    request.local_mode,
-                    request.engine,
-                )
-                hits = list(raw_hits)
-                response_meta = _meta_kwargs_from_result(raw_hits, default_engine=request.engine)
+                return await asyncio.to_thread(blast_local, request)
             else:
                 raise HTTPException(
                     status_code=400,
@@ -1131,14 +1119,7 @@ async def fetch_sequence_from_local_db(
     主に、プライマーBLASTで得た subject と座標から参照配列（amplicon）を構築する用途を想定。
     """
     try:
-        seq = await asyncio.to_thread(
-            blast_service.fetch_sequence_local_db,
-            request.db,
-            request.entry,
-            request.start,
-            request.end,
-            request.strand,
-        )
+        return await asyncio.to_thread(sequence_fetch, request)
     except blast_service.BlastInputError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except blast_service.BlastNotFoundError as exc:
@@ -1146,15 +1127,6 @@ async def fetch_sequence_from_local_db(
     except blast_service.BlastExecutionError as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
-    return BlastFetchSequenceResponse(
-        db=request.db,
-        entry=request.entry,
-        start=request.start,
-        end=request.end,
-        strand=request.strand,
-        length=len(seq),
-        sequence=seq,
-    )
 
 
 @router.post("/build_chrom_aliases_job", response_model=JobCreateResponse)

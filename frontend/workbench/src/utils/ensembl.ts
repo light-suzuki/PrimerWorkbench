@@ -174,10 +174,38 @@ export const ensemblGeneUrl = (geneId: string | undefined | null): string | null
   return `https://plants.ensembl.org/Multi/Search/Results?q=${encodeURIComponent(trimmed)}`;
 };
 
+/**
+ * gene ID と DB コンテキストから gene link URL を決める共通判定。
+ *
+ * - ローカル専用 DB: 設定済みならローカル参照ブラウザ（Navigator）へ、未設定なら null
+ * - Ensembl species が解決できる ID: Ensembl Plants Gene サマリー
+ * - それ以外: Ensembl 検索フォールバック（従来の ensemblGeneUrl と同じ）
+ *
+ * null の場合はリンクせず plain text で出す。
+ */
+export const geneUrlForContext = (opts: {
+  geneId?: string | null;
+  dbLabel?: string | null;
+}): string | null => {
+  const geneId = (opts.geneId || "").trim();
+  if (!geneId) return null;
+
+  if (isLocalOnlyDb(opts.dbLabel)) {
+    return localReferenceGeneUrl({ geneId, dbLabel: opts.dbLabel });
+  }
+
+  const species = inferEnsemblPlantsSpecies({ geneId, dbLabel: opts.dbLabel });
+  if (species) {
+    return `https://plants.ensembl.org/${species}/Gene/Summary?g=${encodeURIComponent(geneId)}`;
+  }
+
+  return ensemblGeneUrl(geneId);
+};
+
 // --- Optional local reference browser integration ---
 
 export const isLocalOnlyDb = (dbLabel: string | undefined | null): boolean => {
-  return Boolean(dbLabel?.trim()) && !Boolean((import.meta.env.VITE_ENSEMBL_SPECIES as string | undefined)?.trim());
+  return Boolean(dbLabel?.trim()) && !(import.meta.env.VITE_ENSEMBL_SPECIES as string | undefined)?.trim();
 };
 
 /**

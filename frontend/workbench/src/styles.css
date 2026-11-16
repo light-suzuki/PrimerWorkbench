@@ -3474,3 +3474,6 @@ p {
     padding: 0.75rem 0.85rem 0.85rem;
   }
 }
+.restriction-pattern { color: #172d46; min-width: 280px; max-width: 750px; overflow-wrap: anywhere; }
+.restriction-pattern pre { font-family: monospace; font-size: 14px; line-height: 1.7; padding: 12px; background: #eef2f5; border: 1px solid #aab7c5; overflow-x: auto; }
+.caps-sequence-detail { max-width: 760px; }

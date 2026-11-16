@@ -21,6 +21,7 @@ export type BlastQueryPreset = {
 export type SequenceInputPreset = {
   sequence: string;
   label?: string;
+  target?: "sequence" | "primer_blast";
 };
 
 export type GenomeSlicePreset = {
