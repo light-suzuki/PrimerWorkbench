@@ -11,6 +11,11 @@ committing those data or binaries to Git.
 
 ## Main Extension Point
 
+Workbench is the upper research workflow application. PCR engine implementation
+belongs in PrimerBLAST OSS, installed through the pinned backend dependency.
+Do not copy its design/specificity algorithms into frontend components or backend
+services. Use the embedded adapter; see `docs/WORKBENCH_ARCHITECTURE.md`.
+
 Reference presets belong here:
 
 ```text

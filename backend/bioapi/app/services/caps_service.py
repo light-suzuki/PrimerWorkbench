@@ -22,6 +22,7 @@ from typing import Callable, Iterable, Optional
 from Bio.Restriction import AllEnzymes, RestrictionBatch
 from Bio.Seq import Seq
 
+from .. import __version__
 from . import blast_service, primer_service
 from .job_service import JobCancelled
 from .sequence_utils import normalize_sequence
@@ -134,16 +135,21 @@ def _compute_fragments(product_len: int, cut_positions: list[int]) -> list[int]:
 
 
 def _enzyme_classes(names: list[str]) -> tuple[list[type], list[str]]:
-    available = {enzyme.__name__: enzyme for enzyme in AllEnzymes}
+    from .restriction_detail import resolve_enzyme
+    from .enzyme_catalog import enzyme_info
     valid: list[type] = []
     unknown: list[str] = []
     for name in names:
         n = (name or "").strip()
         if not n:
             continue
-        cls = available.get(n)
+        cls = resolve_enzyme(n)
         if cls is None:
             unknown.append(n)
+            continue
+        info = enzyme_info(cls.__name__)
+        if info and not info["prediction_supported"]:
+            unknown.append(n + " (unsupported ordinary PCR substrate/cleavage model)")
             continue
         valid.append(cls)
     # 重複除去（順序は保持）
@@ -581,6 +587,112 @@ def prepare_caps_design(
     )
 
 
+def _build_caps_metadata(
+    *,
+    ref_db: str,
+    alt_db: str,
+    screen_dbs: list[str],
+    product_min: int,
+    product_max: int,
+    primer_num_return: int,
+    max_markers: int,
+    enzyme_names: list[str],
+    enzymes_per_primer: int,
+    max_cuts_per_allele: int,
+    min_fragment_len: int,
+    require_perfect_primers_in_alt: bool,
+    blast_num_threads: int | None,
+    blast_max_target_seqs: int,
+    opt_tm: float,
+    min_tm: float,
+    max_tm: float,
+    primer_min_size: int | None,
+    primer_opt_size: int | None,
+    primer_max_size: int | None,
+    primer_min_gc: float | None,
+    primer_max_gc: float | None,
+    primer_salt_monovalent: float | None,
+    primer_dna_conc: float | None,
+) -> dict:
+    """
+    解析を後から再現するためのメタデータを組み立てる。
+
+    絶対パスは含めず、DB は表示用 identity（basename）+ 種別のみ、
+    ツールは identity + version（未取得は unavailable）を載せる。
+    """
+    dbs: list[dict] = [
+        {
+            "role": "ref",
+            "label": _db_label(ref_db),
+            "db_type": blast_service.infer_db_type(ref_db),
+        },
+        {
+            "role": "alt",
+            "label": _db_label(alt_db),
+            "db_type": blast_service.infer_db_type(alt_db),
+        },
+    ]
+    dbs.extend(
+        {
+            "role": "screen",
+            "label": _db_label(db),
+            "db_type": blast_service.infer_db_type(db),
+        }
+        for db in screen_dbs
+    )
+
+    # primer_service._build_primer3_input と同じ有効値デフォルトを反映
+    conditions: dict = {
+        "product_min": product_min,
+        "product_max": product_max,
+        "primer_num_return": primer_num_return,
+        "max_markers": max_markers,
+        "enzymes": enzyme_names,
+        "enzymes_per_primer": enzymes_per_primer,
+        "max_cuts_per_allele": max_cuts_per_allele,
+        "min_fragment_len": min_fragment_len,
+        "require_perfect_primers_in_alt": require_perfect_primers_in_alt,
+        "primer3_opt_tm": opt_tm if opt_tm is not None else 60.0,
+        "primer3_min_tm": min_tm if min_tm is not None else 57.0,
+        "primer3_max_tm": max_tm if max_tm is not None else 63.0,
+        "primer3_min_size": primer_min_size or 18,
+        "primer3_opt_size": primer_opt_size or 20,
+        "primer3_max_size": primer_max_size or 27,
+        "primer3_min_gc": primer_min_gc if primer_min_gc is not None else 20.0,
+        "primer3_max_gc": primer_max_gc if primer_max_gc is not None else 80.0,
+        "primer3_salt_monovalent": primer_salt_monovalent if primer_salt_monovalent is not None else 50.0,
+        "primer3_dna_conc": primer_dna_conc if primer_dna_conc is not None else 50.0,
+    }
+
+    specificity: dict = {
+        "screen_dbs": [_db_label(db) for db in screen_dbs],
+        "screen_task": "blastn-short",
+        "screen_evalue": 1000.0,
+        "blast_max_target_seqs": blast_max_target_seqs,
+        "blast_num_threads": blast_num_threads,
+        "alt_mapping_task": "megablast",
+        "alt_mapping_evalue": 1e-20,
+        "alt_mapping_min_identity_pct": 85.0,
+        "alt_mapping_min_coverage": 0.55,
+    }
+
+    return {
+        "schema_version": "caps-report/1",
+        "app_version": __version__,
+        "primer3": {
+            "identity": "primer3_core",
+            "version": primer_service.get_primer3_version(),
+        },
+        "blast": {
+            "identity": "blastn",
+            "version": blast_service.get_blast_version(),
+        },
+        "dbs": dbs,
+        "conditions": conditions,
+        "specificity": specificity,
+    }
+
+
 def design_caps_markers(
     *,
     ref_db: str,
@@ -680,6 +792,33 @@ def design_caps_markers(
     batch = RestrictionBatch(enzyme_classes)
 
     product_range = f"{product_min}-{product_max}"
+
+    metadata = _build_caps_metadata(
+        ref_db=ref_db,
+        alt_db=alt_db,
+        screen_dbs=[d for d in dict.fromkeys([d for d in (blast_check_dbs or [ref_db]) if d])],
+        product_min=product_min,
+        product_max=product_max,
+        primer_num_return=primer_num_return,
+        max_markers=max_markers,
+        enzyme_names=enzyme_names,
+        enzymes_per_primer=enzymes_per_primer,
+        max_cuts_per_allele=max_cuts_per_allele,
+        min_fragment_len=min_fragment_len,
+        require_perfect_primers_in_alt=require_perfect_primers_in_alt,
+        blast_num_threads=blast_num_threads,
+        blast_max_target_seqs=blast_max_target_seqs,
+        opt_tm=opt_tm,
+        min_tm=min_tm,
+        max_tm=max_tm,
+        primer_min_size=primer_min_size,
+        primer_opt_size=primer_opt_size,
+        primer_max_size=primer_max_size,
+        primer_min_gc=primer_min_gc,
+        primer_max_gc=primer_max_gc,
+        primer_salt_monovalent=primer_salt_monovalent,
+        primer_dna_conc=primer_dna_conc,
+    )
 
     report(0.18, "Primer3 (generate pairs)")
     check_cancel()
@@ -848,8 +987,16 @@ def design_caps_markers(
         for cand in enzyme_candidates:
             if len(rows) >= max_markers:
                 break
+            from .restriction_detail import enzyme_detail
+            ref_detail = enzyme_detail(cand["enzyme"], product_a)
+            alt_detail = enzyme_detail(cand["enzyme"], product_b)
             rows.append(
                 {
+                    "enzyme_detail": enzyme_detail(cand["enzyme"]),
+                    "ref_cut_windows": ref_detail["windows"] if ref_detail else [],
+                    "alt_cut_windows": alt_detail["windows"] if alt_detail else [],
+                    "ref_product_sequence": product_a,
+                    "alt_product_sequence": product_b,
                     "enzyme": cand["enzyme"],
                     "primer_left": left_seq,
                     "primer_right": right_seq,
@@ -888,6 +1035,7 @@ def design_caps_markers(
             "primer_pairs_generated": len(primer_pairs),
             "markers": [],
             "warnings": warnings,
+            "metadata": metadata,
         }
 
     check_dbs = blast_check_dbs[:] if blast_check_dbs else [ref_db]
@@ -970,6 +1118,7 @@ def design_caps_markers(
                 {
                     "db": _db_label(db),
                     "amplicon_count": count,
+                    "product_sizes": [int(product["end"]) - int(product["start"]) + 1 for product in amplicons],
                     "quality": _quality_from_amplicons(count),
                     "top_subject": top.get("subject") if top else None,
                     "top_start": top.get("start") if top else None,
@@ -1011,5 +1160,6 @@ def design_caps_markers(
         "primer_pairs_generated": len(primer_pairs),
         "markers": rows,
         "warnings": warnings,
+        "metadata": metadata,
     }
 

@@ -2,7 +2,7 @@ import React, { Suspense, useEffect, useState } from "react";
 import { BackendHealthPill } from "./components/BackendHealthPill";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { useLocalStorageFlag } from "./utils/storage";
-import { WorkbenchContext } from "./utils/workbenchContext";
+import { WorkbenchContext, type SequenceInputPreset } from "./utils/workbenchContext";
 import { useLanguage } from "./utils/language";
 import { applyUiLanguage } from "./utils/uiTranslation";
 import { focusedTabs, productName } from "./focusedTabs";
@@ -16,7 +16,7 @@ export const App: React.FC = () => {
   const [heroCollapsed, setHeroCollapsed] = useLocalStorageFlag("seqwb_ui_hero_collapsed", false);
   const [presetReversePair, setPresetReversePair] = useState<{ primer1: string; primer2: string } | null>(null);
   const [presetBlastQuery, setPresetBlastQuery] = useState<{ sequence: string; label?: string } | null>(null);
-  const [presetSequenceInput, setPresetSequenceInput] = useState<{ sequence: string; label?: string } | null>(null);
+  const [presetSequenceInput, setPresetSequenceInput] = useState<SequenceInputPreset | null>(null);
   const active = focusedTabs.find((tab) => tab.id === activeTab) ?? focusedTabs[0];
 
   useEffect(() => {

@@ -3,8 +3,10 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
+from . import __version__
 from .core.config import get_settings
-from .routers import annot, blast, caps, db_manager, ensembl_seq, gene_structure, jobs, primers, sequence
+from .routers import annot, blast, caps, db_manager, ensembl_seq, gene_structure, jobs, primers, sequence, tools
+from .routers import primer_engine
 
 
 def _loopback(host: str | None) -> bool:
@@ -22,7 +24,7 @@ def create_app() -> FastAPI:
     app = FastAPI(
         title="Sequence Workbench BioAPI",
         description="Local API for user-provided sequence, Primer3, and BLAST databases.",
-        version="0.2.0",
+        version=__version__,
     )
     settings = get_settings()
     origins = [x.strip() for x in settings.allowed_origins.split(",") if x.strip()]
@@ -45,7 +47,7 @@ def create_app() -> FastAPI:
     async def health() -> dict[str, str]:
         return {"status": "ok"}
 
-    for router in (sequence, primers, blast, caps, jobs, db_manager, annot, gene_structure, ensembl_seq):
+    for router in (sequence, primers, primer_engine, blast, caps, jobs, db_manager, annot, gene_structure, ensembl_seq, tools):
         app.include_router(router.router)
     return app
 

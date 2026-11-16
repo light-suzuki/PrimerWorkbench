@@ -1,4 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import { PrimerTableImport } from "./PrimerTableImport";
+import { parsePrimerText } from "../utils/primerTable";
 import { bioapiClient } from "../api/bioapiClient";
 import type { BlastResponse, BlastHit } from "../types/blast";
 import { computePrimerAmplicons, countLocalHits } from "../utils/primerBlast";
@@ -101,6 +103,12 @@ type BulkPairsParseResult = { pairs: BulkPair[]; warning: string | null } | { er
 const parseBulkPairs = (seqText: string, nameText: string): BulkPairsParseResult => {
   const t = seqText.trim();
   if (!t) return { error: "プライマー配列を入力してください。" };
+  if (!nameText.trim()) {
+    const parsed = parsePrimerText(t);
+    if (!parsed.pairs.length) return { error: "ペアを読み取れませんでした。表の読み方を選び、確認したペアを取り込んでください。" };
+    return { pairs: parsed.pairs.map(pair => ({ primer1: pair.forward.sequence, primer2: pair.reverse.sequence,
+      name1: pair.forward.name, name2: pair.reverse.name })), warning: parsed.warnings.join(" / ") || null };
+  }
 
   let primers: string[] = [];
   let primerNames: (string | undefined)[] = [];
@@ -307,6 +315,7 @@ export const PrimerReversePanel: React.FC = () => {
   const [bulkLoading, setBulkLoading] = useState<boolean>(false);
   const [bulkError, setBulkError] = useState<string | null>(null);
   const [bulkWarning, setBulkWarning] = useState<string | null>(null);
+  const [importWarning, setImportWarning] = useState("");
   const [bulkJobIdStandard, setBulkJobIdStandard] = useState<string | null>(null);
   const [bulkJobIdGpu, setBulkJobIdGpu] = useState<string | null>(null);
   const [bulkJobInfoStandard, setBulkJobInfoStandard] = useState<JobInfo | null>(null);
@@ -1323,8 +1332,8 @@ export const PrimerReversePanel: React.FC = () => {
       <h2 className="panel-title">プライマー逆引き（ローカル BLAST）</h2>
       <p className="panel-hint">
         既存のプライマーペア（5&apos;→3&apos;）を入力し、向き（F/R）は気にせずローカル BLAST DB に対して BLAST して予測
-        PCR 産物の位置（染色体 / 座標 / 長さ）と gene を一覧表示します。下部のテキストエリアには Excel から
-        「名前列」と「配列列」をそのまま貼り付けて、一括評価できます（1行=1ペア、2行=1ペア、FASTA も対応）。
+        PCR 産物の位置（染色体 / 座標 / 長さ）と gene を一覧表示します。
+        表やFASTAを貼り付けるかExcelファイルを選択し、下の一覧でペアを確認して一括評価できます。
       </p>
       <details className="ui-details" style={{ marginBottom: "0.4rem" }}>
         <summary>エクスポート</summary>
@@ -1397,11 +1406,11 @@ export const PrimerReversePanel: React.FC = () => {
           {mode === "bulk" ? (
             <>
               <p className="panel-hint">
-                Excel などからプライマー配列を貼り付けて、一括でローカル BLAST による逆引きと品質評価を行います（1行=1ペア / 2行=1ペア / FASTA 可）。
+                表やFASTAを貼り付け、下の一覧で名前・方向・組み合わせを確認してください。方向表記がない場合は各列で上下2本を1ペアとします。
               </p>
 
               <label className="seq-label">
-                プライマー配列（5&apos;→3&apos;、2行=1ペア / 1行=1ペア / FASTA 可）:
+                プライマー表・配列（5&apos;→3&apos; / FASTA 可）:
                 <textarea
                   className="seq-textarea"
                   rows={8}
@@ -1426,6 +1435,11 @@ export const PrimerReversePanel: React.FC = () => {
                   </label>
                 </div>
               </details>
+
+              <PrimerTableImport text={bulkInput} disabled={bulkLoading} onApply={(text, warning) => {
+                setBulkInput(text); setBulkNameInput(""); setBulkError(null); setImportWarning(warning);
+              }} />
+              {importWarning && <p className="seq-hint">{importWarning}</p>}
 
               <div className="primer-row">
                 <button

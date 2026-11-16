@@ -9,7 +9,7 @@ API の入出力で利用する Pydantic モデル定義。
 - 制限酵素サイト解析
 """
 
-from typing import List, Optional, Literal
+from typing import Dict, List, Optional, Literal
 
 from pydantic import BaseModel, Field
 
@@ -92,6 +92,7 @@ class RestrictionCutSite(BaseModel):
     """1 つの制限酵素に対する切断サイト情報。"""
 
     enzyme: str = Field(..., description="制限酵素名")
+    enzyme_detail: dict | None = None
     cut_positions: List[int] = Field(
         ...,
         description="切断位置（1-based, 塩基インデックス）の一覧",
@@ -846,6 +847,7 @@ class BlastLiftoverResponse(BaseModel):
 
 
 class CapsBlastAmpliconSummary(BaseModel):
+    product_sizes: List[int] = Field(default_factory=list)
     db: str = Field(..., description="評価に使った BLAST DB ラベル（例: reference_v1）")
     amplicon_count: int = Field(..., ge=0, description="予測 PCR 産物数")
     quality: str | None = Field(None, description="簡易品質（S/A/B/C/D）")
@@ -856,6 +858,11 @@ class CapsBlastAmpliconSummary(BaseModel):
 
 
 class CapsMarkerRow(BaseModel):
+    enzyme_detail: dict | None = None
+    ref_cut_windows: List[dict] = Field(default_factory=list)
+    alt_cut_windows: List[dict] = Field(default_factory=list)
+    ref_product_sequence: str | None = None
+    alt_product_sequence: str | None = None
     index: int = Field(..., ge=1, description="1-based の行番号")
     enzyme: str = Field(..., description="制限酵素名（Biopython のクラス名）")
     primer_left: str = Field(..., description="Forward primer（5'→3'）")
@@ -874,6 +881,38 @@ class CapsMarkerRow(BaseModel):
     fragments_alt: List[int] = Field(default_factory=list, description="比較産物の断片長（bp）")
     gene_label: str | None = Field(None, description="代表 gene（ローカル注釈）")
     blast: List[CapsBlastAmpliconSummary] = Field(default_factory=list, description="ローカル BLAST による一意性評価")
+
+
+class CapsReportDbInfo(BaseModel):
+    """レポート用の DB identity（ローカルパスは含めない）。"""
+
+    role: str = Field(..., description="ref / alt / screen")
+    label: str = Field(..., description="DB の表示用 identity（basename）")
+    db_type: str = Field(..., description="nucl / prot / unknown")
+
+
+class CapsReportToolInfo(BaseModel):
+    """レポート用のツール identity とバージョン。"""
+
+    identity: str = Field(..., description="ツール名（例: primer3_core / blastn）")
+    version: str = Field(..., description="取得できなければ unavailable")
+
+
+class CapsReportMetadata(BaseModel):
+    """
+    解析を後から再現するためのメタデータ。
+
+    machine-specific な絶対パスは含めず、表示用 identity と
+    DB 種別・主要条件だけをレポートに残す。
+    """
+
+    schema_version: str = Field(..., description="レポートスキーマの version（例: caps-report/1）")
+    app_version: str = Field(..., description="アプリ（BioAPI）の version")
+    primer3: CapsReportToolInfo = Field(..., description="Primer3 の identity / version")
+    blast: CapsReportToolInfo = Field(..., description="BLAST+ の identity / version")
+    dbs: List[CapsReportDbInfo] = Field(default_factory=list, description="ref / alt / screen の DB 一覧")
+    conditions: Dict[str, object] = Field(default_factory=dict, description="実際に使った主要 Primer3 条件")
+    specificity: Dict[str, object] = Field(default_factory=dict, description="一意性チェックの条件 / threshold")
 
 
 class CapsDesignRequest(BaseModel):
@@ -955,6 +994,7 @@ class CapsDesignResponse(BaseModel):
     primer_pairs_generated: int = Field(..., ge=0, description="Primer3 が返したペア数")
     markers: List[CapsMarkerRow] = Field(default_factory=list, description="CAPS 候補一覧")
     warnings: List[str] = Field(default_factory=list, description="処理中の警告メッセージ")
+    metadata: CapsReportMetadata = Field(..., description="再現用メタデータ（ツール version / DB / 条件）")
 
 
 # -----------------------------

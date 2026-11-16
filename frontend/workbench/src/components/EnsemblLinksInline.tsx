@@ -1,13 +1,12 @@
 import React, { useMemo } from "react";
 import {
-  ensemblGeneUrl,
   ensemblLocationUrl,
   ensemblTranscriptExportUrl,
   ensemblTranscriptSummaryUrl,
+  geneUrlForContext,
   inferEnsemblPlantsSpecies,
   inferEnsemblTranscriptId,
   isLocalOnlyDb,
-  localReferenceGeneUrl,
   localReferenceLocationUrl,
 } from "../utils/ensembl";
 
@@ -50,16 +49,10 @@ export const EnsemblLinksInline: React.FC<{
     );
 
     // Gene URL: local DBs use the configured local reference browser.
-    const geneUrl = useMemo(() => {
-      if (!resolvedGene) return null;
-      if (localOnly) {
-        return localReferenceGeneUrl({ geneId: resolvedGene, dbLabel });
-      }
-      if (species) {
-        return `https://plants.ensembl.org/${species}/Gene/Summary?g=${encodeURIComponent(resolvedGene)}`;
-      }
-      return ensemblGeneUrl(resolvedGene);
-    }, [resolvedGene, species, localOnly, dbLabel]);
+    const geneUrl = useMemo(
+      () => geneUrlForContext({ geneId: resolvedGene, dbLabel }),
+      [resolvedGene, dbLabel],
+    );
 
     // Location URL: local DBs use the configured local reference browser.
     const locUrl = useMemo(() => {

@@ -10,8 +10,9 @@ from multiprocessing import cpu_count
 
 from fastapi import APIRouter, HTTPException
 
-from ..models.schemas import PrimerDesignRequest, PrimerDesignResponse, PrimerPair
+from ..models.schemas import PrimerDesignRequest, PrimerDesignResponse
 from ..services import primer_service
+from ..application import primers_design
 
 
 router = APIRouter(prefix="/primers", tags=["primers"])
@@ -31,24 +32,7 @@ async def design_primers(request: PrimerDesignRequest) -> PrimerDesignResponse:
     """
     try:
         async with _PRIMER3_SEM:
-            candidates_dicts = await asyncio.to_thread(
-                primer_service.design_primers,
-                sequence=request.sequence,
-                num_return=request.num_return,
-                product_size_range=request.product_size_range,
-                target_start_1based=request.target_start,
-                target_length=request.target_length,
-                opt_tm=request.opt_tm,
-                min_tm=request.min_tm,
-                max_tm=request.max_tm,
-                primer_min_size=request.primer_min_size,
-                primer_opt_size=request.primer_opt_size,
-                primer_max_size=request.primer_max_size,
-                primer_min_gc=request.primer_min_gc,
-                primer_max_gc=request.primer_max_gc,
-                primer_salt_monovalent=request.primer_salt_monovalent,
-                primer_dna_conc=request.primer_dna_conc,
-            )
+            return await asyncio.to_thread(primers_design, request)
     except primer_service.Primer3NotFoundError as exc:
         # primer3_core が見つからない場合は 500 で詳細メッセージを返す
         raise HTTPException(status_code=500, detail=str(exc)) from exc
@@ -56,12 +40,3 @@ async def design_primers(request: PrimerDesignRequest) -> PrimerDesignResponse:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-
-    pairs = [PrimerPair(**c) for c in candidates_dicts]
-
-    return PrimerDesignResponse(
-        sequence_length=len("".join(request.sequence.split())),
-        num_candidates=len(pairs),
-        product_size_range=request.product_size_range,
-        candidates=pairs,
-    )

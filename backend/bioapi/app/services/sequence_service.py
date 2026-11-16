@@ -60,7 +60,7 @@ def find_orfs(sequence: str, min_aa_length: int) -> List[Dict]:
     前方 3 フレームで ORF を検出する。
 
     - 開始コドン: ATG
-    - 終止コドン: TAA, TAG, TGA
+    - 終止コドン: TAA, TAG, TGA（必ず終止となる IUPAC の TAR, TRA も含む）
     - ORF 長が min_aa_length 以上のもののみを返す
 
     戻り値は、Pydantic モデルにそのまま渡せる dict のリスト。
@@ -75,7 +75,10 @@ def find_orfs(sequence: str, min_aa_length: int) -> List[Dict]:
         return []
 
     dna = Seq(seq)
-    stop_codons = {"TAA", "TAG", "TGA"}
+    # TAR expands to TAA/TAG and TRA to TAA/TGA. Both are certain stops
+    # under the standard code used by Seq.translate; do not scan past them.
+    # Mixed sense/stop codons (e.g. TGR) remain ambiguous candidate residues.
+    stop_codons = {"TAA", "TAG", "TGA", "TAR", "TRA"}
     results: List[Dict] = []
 
     for frame in range(3):
@@ -89,7 +92,9 @@ def find_orfs(sequence: str, min_aa_length: int) -> List[Dict]:
                     stop_codon = seq[j : j + 3]
                     if stop_codon in stop_codons:
                         orf_nt_len = (j + 3) - i
-                        orf_aa_len = orf_nt_len // 3
+                        # The terminal stop is included in nucleotide coordinates,
+                        # but it does not encode an amino-acid residue.
+                        orf_aa_len = (j - i) // 3
                         if orf_aa_len >= min_aa_length:
                             sub_seq = dna[i : j + 3]
                             protein = sub_seq.translate(to_stop=True)
@@ -115,20 +120,21 @@ def analyze_restriction_sites(sequence: str, enzymes: List[str]) -> Dict[str, Li
     指定された制限酵素ごとの切断位置を解析する。
 
     - Bio.Restriction.AllEnzymes から利用可能な酵素を解決
-    - 解決できなかった酵素名もキーとして含めるが、cut_positions は空リストとする
+    - 解決できない酵素名は ValueError とし、切断なしと区別する
     - 返り値は enzyme_name -> [cut_positions] の dict
     """
     seq = _normalize_sequence(sequence)
     dna = Seq(seq)
 
     # 利用可能な酵素名からクラスを引くための辞書を構築
-    available = {enzyme.__name__: enzyme for enzyme in AllEnzymes}
+    from .restriction_detail import resolve_enzyme
 
     valid_enzymes = []
     for name in enzymes:
-        enzyme_cls = available.get(name)
-        if enzyme_cls is not None:
-            valid_enzymes.append(enzyme_cls)
+        enzyme_cls = resolve_enzyme(name)
+        if enzyme_cls is None:
+            raise ValueError("Unknown restriction enzyme: " + name)
+        valid_enzymes.append(enzyme_cls)
 
     batch = RestrictionBatch(valid_enzymes) if valid_enzymes else RestrictionBatch([])
     analysis = batch.search(dna)
@@ -142,9 +148,4 @@ def analyze_restriction_sites(sequence: str, enzymes: List[str]) -> Dict[str, Li
         result[name] = list(positions)
 
     # 解決できなかった酵素名についてもキーだけ追加（空リスト）
-    for name in enzymes:
-        if name not in result:
-            result[name] = []
-
     return result
-

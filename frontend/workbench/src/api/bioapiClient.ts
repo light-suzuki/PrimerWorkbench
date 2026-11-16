@@ -48,6 +48,7 @@ import type {
 import type { EnsemblRegionSequence } from "../types/ensembl";
 import type { CapsDesignRequest, CapsDesignResponse } from "../types/caps";
 import type { JobCreateResponse, JobInfo } from "../types/jobs";
+import type { ToolVersionsResponse } from "../types/tools";
 import type { BlastLiftoverRequest, BlastLiftoverResponse } from "../types/convert";
 import type {
   GeneMapConvertItem,
@@ -271,4 +272,7 @@ export const bioapiClient = {
 
   convertGeneIdsBetweenDbs: (body: GeneMapConvertBetweenRequest): Promise<GeneMapConvertBetweenItem[]> =>
     postJson("/gene_map/convert_between", body),
+
+  toolVersions: (): Promise<ToolVersionsResponse> =>
+    getJson("/tools/versions"),
 };

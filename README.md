@@ -1,7 +1,7 @@
 # Primer Workbench
 
 [![CI](https://github.com/light-suzuki/PrimerWorkbench/actions/workflows/ci.yml/badge.svg)](https://github.com/light-suzuki/PrimerWorkbench/actions/workflows/ci.yml)
-[![Release](https://img.shields.io/github/v/release/light-suzuki/=semver)](https://github.com/light-suzuki/PrimerWorkbench/releases)
+[![Release](https://img.shields.io/github/v/release/light-suzuki/PrimerWorkbench?sort=semver)](https://github.com/light-suzuki/PrimerWorkbench/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 

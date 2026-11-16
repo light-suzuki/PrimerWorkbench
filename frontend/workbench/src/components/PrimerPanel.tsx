@@ -3,6 +3,7 @@ import { bioapiClient } from "../api/bioapiClient";
 import type { PrimerDesignResponse, PrimerPair } from "../types/primers";
 import type { BlastResponse, BlastHit, NCBITarget } from "../types/blast";
 import type { JobInfo } from "../types/jobs";
+import type { ToolVersionsResponse } from "../types/tools";
 import { computePrimerAmplicons, countLocalHits } from "../utils/primerBlast";
 import { downloadMarkdown, openPrintViewForMarkdown } from "../utils/exportReport";
 import { runBlastBatchLocalJob } from "../utils/blastBatchLocalJob";
@@ -128,7 +129,7 @@ export const PrimerPanel: React.FC = () => {
     };
   };
 
-  const buildMarkdownReport = (): string => {
+  const buildMarkdownReport = (versions?: ToolVersionsResponse | null): string => {
     if (!result) return "";
     const dt = new Date();
     const lines: string[] = [];
@@ -153,6 +154,27 @@ export const PrimerPanel: React.FC = () => {
     }
     lines.push(
       `- Tm 条件: 最適 \`${optTm}℃\` ／ 最小 \`${minTm}℃\` ／ 最大 \`${maxTm}℃\``,
+    );
+    lines.push("");
+    lines.push("## 解析条件（Reproducibility）");
+    lines.push("");
+    lines.push(`- report_schema: primer-report/1`);
+    lines.push(`- app_version: ${versions?.app_version ?? "unknown"}`);
+    lines.push(`- primer3: primer3_core ${versions?.primer3_version ?? "unavailable"}`);
+    lines.push(`- blast: blastn ${versions?.blast_version ?? "unavailable"}`);
+    lines.push(
+      `- primer3_length: min=\`${primerMinSize}\` / opt=\`${primerOptSize}\` / max=\`${primerMaxSize}\``,
+    );
+    lines.push(`- primer3_gc: min=\`${primerMinGc}%\` / max=\`${primerMaxGc}%\``);
+    lines.push(
+      `- primer3_salt_dna: salt=\`${primerSaltMonovalent} mM\` / dna=\`${primerDnaConc} nM\``,
+    );
+    const dbLabels = effectiveLocalDbs.map((db) => labelForDb(db)).filter(Boolean);
+    lines.push(`- screen_dbs: ${dbLabels.join(", ") || "-"}`);
+    lines.push(
+      `- screen_blast: task=\`${blastTask}\` / evalue=\`${blastEvalue}\` / max_target_seqs=\`${blastMaxHits}\`${
+        blastMaxHsps != null ? ` / max_hsps=\`${blastMaxHsps}\`` : ""
+      } / threads=\`${blastNumThreads ?? "auto"}\``,
     );
     lines.push("");
 
@@ -416,8 +438,14 @@ export const PrimerPanel: React.FC = () => {
         <button
           type="button"
           className="seq-button secondary"
-          onClick={() => {
-            const md = buildMarkdownReport();
+          onClick={async () => {
+            let versions: ToolVersionsResponse | null = null;
+            try {
+              versions = await bioapiClient.toolVersions();
+            } catch {
+              versions = null;
+            }
+            const md = buildMarkdownReport(versions);
             if (!md) return;
             downloadMarkdown(md, "primer_design");
           }}
@@ -428,8 +456,14 @@ export const PrimerPanel: React.FC = () => {
         <button
           type="button"
           className="seq-button secondary"
-          onClick={() => {
-            const md = buildMarkdownReport();
+          onClick={async () => {
+            let versions: ToolVersionsResponse | null = null;
+            try {
+              versions = await bioapiClient.toolVersions();
+            } catch {
+              versions = null;
+            }
+            const md = buildMarkdownReport(versions);
             if (!md) return;
             openPrintViewForMarkdown(md, "プライマー設計レポート");
           }}

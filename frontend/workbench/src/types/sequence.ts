@@ -40,6 +40,7 @@ export interface RestrictionAnalysisRequest {
 }
 
 export interface RestrictionCutSite {
+  enzyme_detail?: import("../components/RestrictionPattern").EnzymeDetail | null;
   enzyme: string;
   cut_positions: number[];
 }

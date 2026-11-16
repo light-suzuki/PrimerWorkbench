@@ -31,6 +31,7 @@ from typing import Iterable, List
 import httpx
 
 from ..core.config import get_settings
+from .genome import Genome
 from ..core.paths import blast_cold_databases_dir, blast_databases_dir, blast_gpu_prefilter_cache_dir, workbench_tmp_dir, expand_user_path
 
 
@@ -234,6 +235,48 @@ def _db_exists(db_prefix: Path, *, db_type: str = "nucl") -> bool:
         suffixes = (".nhr", ".nin", ".nsq", ".ndb", ".not", ".ntf", ".nto")
     candidate_files = [db_prefix.with_suffix(suffix) for suffix in suffixes]
     return any(p.exists() for p in candidate_files)
+
+
+def infer_db_type(db_prefix: str) -> str:
+    """
+    BLAST DB prefix から DB 種別（nucl / prot / unknown）を推定する。
+
+    拡張子ファイルの存在（.nsq = nucl / .psq = prot）で判定する。
+    """
+    base = str(db_prefix or "")
+    if not base.strip():
+        return "unknown"
+    p = Path(base)
+    if any(p.with_suffix(s).exists() for s in (".nsq", ".nhr", ".nin")):
+        return "nucl"
+    if any(p.with_suffix(s).exists() for s in (".psq", ".phr", ".pin")):
+        return "prot"
+    return "unknown"
+
+
+@lru_cache(maxsize=8)
+def get_blast_version() -> str:
+    """
+    NCBI BLAST+ のバージョンを返す（例: "2.12.0+"）。
+
+    取得できない場合は "unavailable" を返す。
+    """
+    try:
+        path = _blast_bin("blastn")
+        proc = subprocess.run(
+            [path, "-version"],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=15,
+        )
+    except Exception:
+        return "unavailable"
+    if proc.returncode != 0:
+        return "unavailable"
+    first = (proc.stdout or "").splitlines()[0] if (proc.stdout or "").strip() else ""
+    m = re.match(r"^blastn:\s+(.+)", first)
+    return m.group(1).strip() if m else first.strip() or "unavailable"
 
 
 @lru_cache(maxsize=64)
@@ -4362,7 +4405,7 @@ def _find_fasta_for_db(db_prefix: Path) -> Path | None:
 
 
 @lru_cache(maxsize=256)
-def _locate_fasta_layout(fasta_path_str: str, entry: str) -> _FastaLayout:
+def _locate_fasta_layout_cached(fasta_path_str: str, entry: str, signature: tuple[int, int, int]) -> _FastaLayout:
     fasta_path = Path(fasta_path_str)
     entry_raw = (entry or "").strip()
     entry_lower = entry_raw.lower()
@@ -4410,6 +4453,13 @@ def _locate_fasta_layout(fasta_path_str: str, entry: str) -> _FastaLayout:
     raise BlastNotFoundError(f"FASTA に entry が見つかりませんでした: {entry}")
 
 
+def _locate_fasta_layout(fasta_path_str: str, entry: str) -> _FastaLayout:
+    path = Path(fasta_path_str)
+    stat = path.stat()
+    return _locate_fasta_layout_cached(str(path.resolve()), entry,
+                                      (stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns))
+
+
 def _fetch_sequence_from_fasta(
     *,
     fasta_path: Path,
@@ -4427,6 +4477,12 @@ def _fetch_sequence_from_fasta(
     if end < start:
         raise BlastInputError("end は start 以上を指定してください。")
 
+    if Path(str(fasta_path) + ".fai").exists() and fasta_path.suffix != ".gz":
+        genome = Genome(str(fasta_path))
+        if entry in genome:
+            if end > genome.length(entry):
+                raise BlastInputError("end exceeds the indexed sequence length.")
+            return genome.fetch(entry, start, end)
     layout = _locate_fasta_layout(str(fasta_path), entry)
     s0 = start - 1
     e0 = end - 1
@@ -4485,7 +4541,7 @@ def _resolve_gblastn_binary() -> str | None:
 
     優先順位:
     1. 環境変数 GBLASTN_BIN
-    2. 既知のローカル候補パス
+    2. ホーム配下の標準候補パス
     3. PATH 上の gblastn / blastn_gpu
     """
     logger = logging.getLogger(__name__)
@@ -4504,7 +4560,6 @@ def _resolve_gblastn_binary() -> str | None:
     preferred_candidates = [
         home / "sequence_workbench/tools/G-BLASTN/c++/GCC1300-ReleaseMT64/bin/blastn",
         home / "G-BLASTN/c++/GCC1300-ReleaseMT64/bin/blastn",
-        Path("/mnt/c/Users/user.Windows-PC/projects/G-BLASTN/c++/GCC1300-ReleaseMT64/bin/blastn"),
     ]
     for p in preferred_candidates:
         if p.exists() and p.is_file() and os.access(str(p), os.X_OK):
@@ -4538,7 +4593,7 @@ def _resolve_cuda_blastn_binary() -> tuple[str | None, str]:
 
     優先順位:
     1. 環境変数 CUDA_BLASTN
-    2. この環境で利用実績のある候補パス
+    2. ホーム配下の標準候補パス
     3. PATH 上の cuda-blastn / cuda_blastn_opt
     """
     logger = logging.getLogger(__name__)
@@ -4558,7 +4613,6 @@ def _resolve_cuda_blastn_binary() -> tuple[str | None, str]:
     preferred_candidates = [
         home / "cuda-blastn/bin/cuda-blastn",
         home / "cuda-blastn/build/cuda_blastn_opt",
-        Path("/mnt/c/Users/user.Windows-PC/projects/cuda-blastn/build/cuda_blastn_opt"),
     ]
     for p in preferred_candidates:
         if p.exists() and p.is_file() and os.access(str(p), os.X_OK):
